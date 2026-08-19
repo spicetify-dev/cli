@@ -99,7 +99,7 @@ $tmp = "$env:TEMP\sqlite_$([System.IO.Path]::GetRandomFileName() -replace '\..*'
 New-Item -ItemType Directory -Path $tmp -Force | Out-Null
 Push-Location $tmp
 try {
-    Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/System.Data.SQLite/1.0.118" -OutFile "$tmp\sqlite.zip" -UseBasicParsing -ErrorAction Stop
+    Invoke-WebRequest -Uri "https://github.com/ericsink/SQLitePCL.raw/raw/master/bin/System.Data.SQLite.dll" -OutFile "$tmp\SQLite.Interop.dll" -UseBasicParsing -ErrorAction Stop
     Expand-Archive -Path "$tmp\sqlite.zip" -DestinationPath $tmp -Force -ErrorAction Stop
     $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'AMD64') { 'x64' } elseif ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x86' }
     Copy-Item "$tmp\lib\net48\System.Data.SQLite.dll" "$tmp\" -Force
